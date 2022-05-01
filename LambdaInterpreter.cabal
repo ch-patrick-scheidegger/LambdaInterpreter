@@ -25,7 +25,7 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Interpreter
   other-modules:
       Paths_LambdaInterpreter
   hs-source-dirs:
