@@ -25,6 +25,17 @@ testLambda2 = App (App (Abs "x" (Var "x")) (Var "a")) (App (Abs "y" (Var "y")) (
 testLambda3 = App (App (Abs "x" (Var "x")) (Var "b")) (App (Abs "y" (Var "y")) (Var "b"))
 -- >>> testLambda3
 -- (%x. x) a (%y. y) b
+testLambda4 = Abs "x" (App (Var "a") (Var "b"))
+-- >>> testLambda4
+-- (%x. a b)
+testLambda5 = App (Abs "x" (Var "x")) (Var "a")
+-- >>> testLambda5
+-- (%x. x) a
+testLambda6 = Abs "x" (Abs "y" (Var "x"))
+-- >>> testLambda6
+-- (%x. (%y. x))
+
+
 -- ----- END -----
 
 
@@ -115,7 +126,7 @@ isSubNewVar id term = not (elem id (boundVars term) || elem id (freeVars term))
 -- Returns True if the top level of the term t is a beta redex.
 isBetaRedex :: Term -> Bool
 isBetaRedex (Var varName) = False
-isBetaRedex (Abs varName term) = False
+isBetaRedex (Abs varName term) = True
 isBetaRedex (App term1 term2) = True
 
 -- (λx. g x) ((λy. g y) 5)
@@ -123,13 +134,46 @@ isBetaRedex (App term1 term2) = True
 -- `(λx.x) a`
 -- (App (Abs "x" (Var "x")) (Var "a"))
 -- Use substitute to implement a function betaReduce t that applies a beta reduction to top level of the term t.
-betaReduce t = undefined
+betaReduce :: Term -> Term
+betaReduce (Var name) = Var name
+betaReduce (Abs varName term) = betaReduce term
+betaReduce (App (Abs toReplace term) termToBePut) = substitute2 (toReplace, termToBePut) term
+betaReduce term = term
 
-leftmostOutermost :: Term -> Term
-leftmostOutermost = undefined
 
-derivation :: (Term -> Term) -> Term -> [Term]
-derivation = undefined
+-- >>> reduce testLambda5
+-- a
+-- >>> reduce testLambda4
+-- ProgressCancelledException
 
 reduce :: Term -> Term
-reduce = undefined
+reduce term 
+  | isBetaRedex term = reduce (betaReduce term)
+  | otherwise = term 
+
+-- >>> testLambda1
+-- (%x. (%y. x y)) y
+
+-- >>> isNonFree "y" testLambda1
+-- False
+
+
+-- returns true if the given var is not used a free var in the given term
+isNonFree :: Id -> Term -> Bool
+isNonFree toCheck (Var varName) = toCheck /= varName
+isNonFree toCheck (Abs varName term) 
+  | toCheck == varName = True
+  | otherwise = isNonFree toCheck term
+isNonFree toCheck (App term1 term2) = isNonFree toCheck term1 && isNonFree toCheck term2
+
+
+-- substitute (x,tx) t that replaces all free occurrences of the variable x within the term t with the term tx
+substitute2 :: (Id, Term) -> Term -> Term
+substitute2 (x, termL) (Var y)
+  | x == y = termL
+  | otherwise = Var y
+substitute2 (x, termL) (Abs y termM)
+  | x == y = Abs y termM
+  | isNonFree y termL = Abs y (substitute2 (x, termL) termM)
+  | otherwise = undefined -- here is some alpha conversion needed
+substitute2 (x, termL) (App termM termN) = App (substitute2 (x, termL) termM) (substitute2 (x, termL) termN)
