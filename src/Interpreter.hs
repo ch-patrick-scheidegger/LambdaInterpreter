@@ -8,12 +8,12 @@ data Term
   = Var Id -- Variables
   | Abs Id Term -- Abstractions
   | App Term Term -- Applications
-  deriving (Eq)
+  deriving (Eq, Show)
 
-instance Show Term where
-  show (Var varName) = varName
-  show (Abs varName term) = "(%" ++ varName ++ ". " ++ show term ++ ")"
-  show (App term1 term2) = show term1 ++ " " ++ show term2
+-- instance Show Term where
+--   show (Var varName) = varName
+--   show (Abs varName term) = "(%" ++ varName ++ ". " ++ show term ++ ")"
+--   show (App term1 term2) = show term1 ++ " " ++ show term2
 
 -- ----- Test Values -----
 testLambda1 = App (Abs "x" (Abs "y" (App (Var "x") (Var "y")))) (Var "y")
@@ -22,9 +22,10 @@ testLambda1 = App (Abs "x" (Abs "y" (App (Var "x") (Var "y")))) (Var "y")
 testLambda2 = App (App (Abs "x" (Var "x")) (Var "a")) (App (Abs "y" (Var "y")) (Var "b"))
 -- >>> testLambda2
 -- (%x. x) a (%y. y) b
-testLambda3 = App (App (Abs "x" (Var "x")) (Var "b")) (App (Abs "y" (Var "y")) (Var "b"))
+-- (λx.λy. x y) a b
+testLambda3 = App (App (Abs "x" (Abs "y" (App (Var "x") (Var "y")))) (Var "a")) (Var "b")
 -- >>> testLambda3
--- (%x. x) a (%y. y) b
+-- (%x. (%y. x y)) a b
 testLambda4 = Abs "x" (App (Var "a") (Var "b"))
 -- >>> testLambda4
 -- (%x. a b)
@@ -34,6 +35,11 @@ testLambda5 = App (Abs "x" (Var "x")) (Var "a")
 testLambda6 = Abs "x" (Abs "y" (Var "x"))
 -- >>> testLambda6
 -- (%x. (%y. x))
+testLambda7 = App (App (Abs "z" (Var "z")) (Abs "q" (App (Var "q") (Var "q")))) (Abs "s" (App (Var "s") (Var "a")))
+-- >>> testLambda7
+-- (%z. z) (%q. q q) (%s. s a)
+
+
 
 
 -- ----- END -----
@@ -125,9 +131,14 @@ isSubNewVar id term = not (elem id (boundVars term) || elem id (freeVars term))
 
 -- Returns True if the top level of the term t is a beta redex.
 isBetaRedex :: Term -> Bool
-isBetaRedex (Var varName) = False
-isBetaRedex (Abs varName term) = True
-isBetaRedex (App term1 term2) = True
+-- isBetaRedex (Var varName) = False
+-- isBetaRedex (Abs varName term) = False -- E.g. (\x. a b) cannot be reduced
+-- isBetaRedex (App term1 term2) = True -- May be wrong, e.g. "a (λx. x)" cannot be reduced further
+isBetaRedex (App (App _ _) _) = True
+isBetaRedex (App (Abs _ _) _) = True 
+isBetaRedex (App _ (App _ _)) = True 
+isBetaRedex _ = False
+
 
 -- (λx. g x) ((λy. g y) 5)
 --
@@ -135,20 +146,42 @@ isBetaRedex (App term1 term2) = True
 -- (App (Abs "x" (Var "x")) (Var "a"))
 -- Use substitute to implement a function betaReduce t that applies a beta reduction to top level of the term t.
 betaReduce :: Term -> Term
-betaReduce (Var name) = Var name
-betaReduce (Abs varName term) = betaReduce term
-betaReduce (App (Abs toReplace term) termToBePut) = substitute2 (toReplace, termToBePut) term
+-- betaReduce (Var name) = Var name
+-- betaReduce (Abs varName term) = Abs varName (betaReduce term)
+betaReduce (App (Abs y term1) term2) = substitute2 (y, term2) term1
+--betaReduce (App term2 (Abs y term1)) = substitute2 (y, term2) term1
+betaReduce (App term1 term2) 
+  | isBetaRedex term1 = App (betaReduce term1) term2
+  | isBetaRedex term2 = App term1 (betaReduce term2)
+  | otherwise = App term1 term2
 betaReduce term = term
 
+-- testLambda3 = App (App (Abs "x" (Abs "y" (App (Var "x") (Var "y")))) (Var "a")) (Var "b")
+-- >>> testLambda3
+-- (%x. (%y. x y)) a b
 
 -- >>> reduce testLambda5
--- a
--- >>> reduce testLambda4
--- ProgressCancelledException
+-- Var "a"
+
+-- testLambda5 = App (Abs "x" (Var "x")) (Var "a")
+-- >>> testLambda5
+-- App (Abs "x" (Var "x")) (Var "a")
+
+-- >>> reduce testLambda3
+-- App (Var "a") (Var "b")
+
+-- App (App (Abs "x" (Abs "y" (App (Var "x") (Var "y")))) (Var "a")) (Var "b")
+-- App (Abs "y" (App (Var "a") (Var "y"))) (Var "b")
+
+-- >>> testLambda7
+-- App (App (Abs "z" (Var "z")) (Abs "q" (App (Var "q") (Var "q")))) (Abs "s" (App (Var "s") (Var "a")))
+
+-- >>> reduce testLambda7
+-- App (Var "a") (Var "a")
 
 reduce :: Term -> Term
-reduce term 
-  | isBetaRedex term = reduce (betaReduce term)
+reduce term -- = betaReduce (betaReduce term) 
+  | isBetaRedex term = reduce (betaReduce term) --TODO uncomment me
   | otherwise = term 
 
 -- >>> testLambda1
@@ -167,13 +200,16 @@ isNonFree toCheck (Abs varName term)
 isNonFree toCheck (App term1 term2) = isNonFree toCheck term1 && isNonFree toCheck term2
 
 
+-- >>> substitute2 ("y", (Abs "x" (Var "x"))) (Abs "y" (App (Var "a") (Var "y")))
+-- App (Var "a") (Abs "x" (Var "x"))
+
 -- substitute (x,tx) t that replaces all free occurrences of the variable x within the term t with the term tx
 substitute2 :: (Id, Term) -> Term -> Term
 substitute2 (x, termL) (Var y)
   | x == y = termL
   | otherwise = Var y
 substitute2 (x, termL) (Abs y termM)
-  | x == y = Abs y termM
+  | x == y = substitute2 (x, termL) termM --TODO change me to "Abs y termM" if it still does not work
   | isNonFree y termL = Abs y (substitute2 (x, termL) termM)
-  | otherwise = undefined -- here is some alpha conversion needed
+  | otherwise = undefined --TODO here is some alpha conversion needed
 substitute2 (x, termL) (App termM termN) = App (substitute2 (x, termL) termM) (substitute2 (x, termL) termN)
